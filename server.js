@@ -24,10 +24,11 @@ mongoose.Promise = Promise;
 
 //Full thoughts' information
 const Thought = mongoose.model("Thought", {
-  message: String /* {
+  message: String,
+  /* {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Message",
-  } */,
+  } */
   hearts: Number,
   createdAt: {
     type: Date,
@@ -51,14 +52,12 @@ app.get("/", (req, res) => {
 
 // ---- Endpoints POST ----
 //All thougths:
-app.post("/thoughts", async (req, res) => {
-  const thought = new Thought(req.body);
+app.post("/all", async (req, res) => {
+  const thought = new Thought({ message: req.body.message });
   await thought.save();
   res.json(thought);
   /* console.log(req.body);
   res.send("blahblah"); */
-  /* const allThoughts = await Thought.find();
-  res.json(allThoughts); */
 });
 
 // Just to see all json data, temporary
