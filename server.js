@@ -24,12 +24,16 @@ mongoose.Promise = Promise;
 
 //Full thoughts' information
 const Thought = mongoose.model("Thought", {
-  message: String,
-  /* {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Message",
-  } */
-  hearts: { type: Number, default: 0 },
+  message: {
+    type: String,
+    required: true,
+    minLength: 5,
+    maxLength: 140,
+  },
+  hearts: {
+    type: Number,
+    default: 0,
+  },
   createdAt: {
     type: Date,
     default: () => new Date(),
@@ -56,11 +60,20 @@ app.get("/", (req, res) => {
 }); */
 
 // ---- Endpoints POST ----
-//All thougths:
-app.post("/thought", async (req, res) => {
-  const thought = new Thought({ message: req.body.message });
-  await thought.save();
-  res.json(thought);
+//Post a thought:
+app.post("/thoughts", async (req, res) => {
+  const { message } = req.body;
+  const thought = new Thought({ message });
+
+  try {
+    const savedThought = await thought.save();
+    res.status(201).json(savedThought);
+  } catch (err) {
+    res.status(404).json({
+      message: "Couldn't save a thought to the database",
+      error: err.errors, //check the errors
+    });
+  }
   /* console.log(req.body);
   res.send("blahblah"); */
 });
@@ -73,10 +86,12 @@ app.put("/thought/:id", async (req, res) => {
   const editedThought = req.body.message;
 
   const foundThought = await Thought.findById(id).exec();
+  console.log({ foundThought });
 
   if (foundThought) {
     foundThought.message = editedThought;
     await foundThought.save();
+    // TODO response
   } else {
     res
       .status(404)
@@ -85,7 +100,7 @@ app.put("/thought/:id", async (req, res) => {
 });
 
 // ---- Endpoints DELETE ----
-
+// Delete a thought
 app.delete("/thought/:id", async (req, res) => {
   const { id } = req.params;
 
@@ -110,21 +125,6 @@ app.delete("/thought/:id", async (req, res) => {
   return res.json(allThoughts);
 }); */
 
-// ---- Find a message by id
-app.get("/thought/:id", (req, res) => {
-  const id = req.params.id;
-
-  const messageById = data.find((item) => item._id === id);
-
-  if (!messageById) {
-    return res
-      .status(404)
-      .json({ error: `Message with id ${id} doesn't exist` });
-  }
-
-  res.json(messageById);
-});
-
 // ---- All messages, filter: query param: filter by hearts N or =+N, url ex.: http://localhost:8080/thoughts?hearts=23, url ex.: http://localhost:8080/thoughts/more-hearts?hearts=N,
 app.get("/thoughts", async (req, res) => {
   /* console.log("this is the one with params"); */
@@ -132,11 +132,10 @@ app.get("/thoughts", async (req, res) => {
 
   const heartsNumber = Number(hearts);
 
-  /*  console.log("hearts", heartsNumber); */
-
-  const query = Thought.find();
+  const query = Thought.find().sort({ createdAt: "desc" }); //building query for filtering by amount of hearts
 
   if (hearts) {
+    //
     query.find({
       hearts: { $eq: heartsNumber },
     });
@@ -153,6 +152,21 @@ app.get("/thoughts", async (req, res) => {
   res.json(allThoughts);
 });
 
+// ---- Find a message by id
+app.get("/thought/:id", (req, res) => {
+  const id = req.params.id;
+
+  const messageById = data.find((item) => item._id === id); // TODO still data
+
+  if (!messageById) {
+    return res
+      .status(404)
+      .json({ error: `Message with id ${id} doesn't exist` });
+  }
+
+  res.json(messageById);
+});
+
 // TODO ---- LATER -----
 
 // --- All messages that have N or more hearts, url ex.: http://localhost:8080/thoughts/more-hearts?hearts=N
@@ -161,7 +175,7 @@ app.get("/thoughts/more-hearts", (req, res) => {
 
   const heartsMore = Number(hearts);
 
-  let showPopular = data;
+  let showPopular = data; // TODO Still data
 
   if (hearts) {
     showPopular = showPopular.filter((item) => item.hearts >= heartsMore);
@@ -180,6 +194,7 @@ app.get("/thoughts/more-hearts", (req, res) => {
 //Endpoint to sort all messages by date from old to new, url ex.: /messages/sort-by/?date=old:-new
 app.get("/thoughts/sort-oldest/", (req, res) => {
   const sortedByDate = data.sort(
+    // TODO Still data
     (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
   );
 
@@ -189,6 +204,7 @@ app.get("/thoughts/sort-oldest/", (req, res) => {
 //Endpoint to sort all messages by date new to old, url ex.: /messages/sort-by/?date=old:-new
 app.get("/thoughts/sort-newest/", (req, res) => {
   const sortedByDate = data.sort(
+    // TODO still data
     (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
   );
 
@@ -219,3 +235,12 @@ use Date.parse for this to get timestamp with name of the month in it?
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
+
+// ---- LIKE ----
+// TODO add like to a post
+
+// ---- REGISTER ----
+// TODO add user registration
+
+// ---- LOGIN ----
+// TODO add user login
