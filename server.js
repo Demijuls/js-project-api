@@ -19,8 +19,6 @@ mongoose.connect(mongoUrl);
 mongoose.Promise = Promise;
 
 // ---- Models ----
-//Thoughts' text
-/* const Message = mongoose.model("ThoughtText", { message: String }); */
 
 //Full thoughts' information
 const Thought = mongoose.model("Thought", {
@@ -40,92 +38,63 @@ const Thought = mongoose.model("Thought", {
   },
 });
 
-const User = mongoose.model("user", {
-  name: String,
-  email: String,
+const User = mongoose.model("User", {
+  name: {
+    type: String,
+    required: true,
+    minLength: 4,
+    maxLength: 32,
+    match: true,
+  },
+  email: {
+    type: String,
+    required: true,
+    match: true,
+    unique: true,
+  },
+  password: {
+    type: String,
+    required: true,
+    minLength: 8,
+    maxLength: 24,
+    match: true,
+  },
+  registerDate: {
+    type: Date,
+    default: () => new Date(),
+  },
 });
 
 // ---- / Models ----
 
-//List all endpoints
+// ---- List all endpoints
 app.get("/", (req, res) => {
   const endpoints = listEndpoints(app);
 
   res.json({ endpoints: endpoints });
 });
 
-// Just to see all json data, temporary
-/* app.get("/data", (req, res) => {
-  res.json(data);
-}); */
-
 // ---- Endpoints POST ----
-//Post a thought:
+// ---- Post a thought:
 app.post("/thoughts", async (req, res) => {
   const { message } = req.body;
-  const thought = new Thought({ message });
 
   try {
-    const savedThought = await thought.save();
-    res.status(201).json(savedThought);
+    const thought = await new Thought({ message }).save();
+    res.status(201).json(thought);
   } catch (err) {
-    res.status(404).json({
+    //Bad request
+    res.status(400).json({
       message: "Couldn't save a thought to the database",
       error: err.errors, //check the errors
     });
   }
-  /* console.log(req.body);
-  res.send("blahblah"); */
 });
 
-// ---- Endpoints PUT ----
-
-//Edit a thought
-app.put("/thought/:id", async (req, res) => {
-  const { id } = req.params;
-  const editedThought = req.body.message;
-
-  const foundThought = await Thought.findById(id).exec();
-  console.log({ foundThought });
-
-  if (foundThought) {
-    foundThought.message = editedThought;
-    await foundThought.save();
-    // TODO response
-  } else {
-    res
-      .status(404)
-      .json({ error: `Oops, thought with ${id} doesn't seem to exist yet` });
-  }
-});
-
-// ---- Endpoints DELETE ----
-// Delete a thought
-app.delete("/thought/:id", async (req, res) => {
-  const { id } = req.params;
-
-  const foundThought = await Thought.findById(id).exec();
-
-  if (!foundThought) {
-    return res.status(404).json({
-      error: `Oh no, you can't delete a thougth with ${id} because it doesn't exist!`,
-    });
-  }
-  await foundThought.deleteOne().exec();
-  res.status(200).json({ message: "Thought was deleted" });
-});
+// ---- / Endpoints POST ----
 
 // ---- Endpoints GET ----
-
-//All messages
-/* app.get("/thoughts", async (req, res) => {
-  console.log("this has no params");
-  const allThoughts = await Thought.find();
-
-  return res.json(allThoughts);
-}); */
-
-// ---- All messages, filter: query param: filter by hearts N or =+N, url ex.: http://localhost:8080/thoughts?hearts=23, url ex.: http://localhost:8080/thoughts/more-hearts?hearts=N,
+// ---- All messages, and filter: query param: filter by hearts N url ex.: http://localhost:8080/thoughts?hearts=23
 app.get("/thoughts", async (req, res) => {
   /* console.log("this is the one with params"); */
   const { hearts } = req.query;
@@ -133,68 +102,209 @@ app.get("/thoughts", async (req, res) => {
   const heartsNumber = Number(hearts);
 
   const query = Thought.find().sort({ createdAt: "desc" }); //building query for filtering by amount of hearts
+  try {
+    if (hearts) {
+      //Filter by amount of hearts
+      query.find({
+        hearts: { $eq: heartsNumber },
+      });
+    }
 
+    const allThoughts = await query.exec();
+
+    if (!allThoughts.length) {
+      return res
+        .status(404)
+        .json({ error: `Message with ${heartsNumber} hearts doesn't exist` });
+    }
+
+    res.json(allThoughts);
+  } catch (err) {
+    res.status(400).json({
+      message: "On no, something went wrong, couldn't retrieve any thoughts",
+    });
+  }
+});
+
+// ---- Find one thought by id
+app.get("/thoughts/:id", async (req, res) => {
+  const { id } = req.params;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: `Oops, this id ${id} is invalid` });
+  }
+
+  try {
+    const singleThought = await Thought.findById(id).exec();
+
+    if (!singleThought) {
+      return res.status(404).json({
+        error: `Oh no, seem like a thougth with ${id} doesn't exist or was deleted!`,
+      });
+    }
+
+    res.status(201).json(singleThought);
+  } catch (err) {
+    res.status(404).json({
+      message: `Oops, thought with ${id} doesn't seem to exist yet`,
+      error: err.errors,
+    });
+  }
+});
+
+// ---- Like a thought
+app.post("/thoughts/:id/like", async (req, res) => {
+  const { id } = req.params;
+  const update = { $inc: { hearts: 1 }, new: true };
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(404).json({ error: `Oops, this id ${id} is invalid` });
+  }
+
+  try {
+    const addLike = await Thought.findByIdAndUpdate(id, update);
+
+    if (!addLike) {
+      return res.status(404).json({
+        error: `Oops, can't like thought with id ${id} because it doesn't exist or was deleted`,
+      });
+    }
+
+    res.status(200).json(addLike);
+  } catch (err) {
+    res.status(500).json({
+      message: "Couldn't save like to the database",
+      error: err.errors,
+    });
+  }
+});
+
+// --- All messages with filter: query param, that have N or more hearts, url ex.: http://localhost:8080/thoughts/hearts?hearts=N&sort=desc
+
+// TODO check the route
+app.get("/hearts", async (req, res) => {
+  const { hearts } = req.query;
+  const heartsMore = Number(hearts);
+
+  if (isNaN(heartsMore)) {
+    return res
+      .status(400)
+      .json({ message: "Oops, this number of likes is not valid" });
+  }
+
+  const query = {};
   if (hearts) {
-    //
-    query.find({
-      hearts: { $eq: heartsNumber },
+    query.hearts = { $gte: heartsMore };
+  }
+
+  try {
+    const filteredThougths = await Thought.find(query).sort({ hearts: "desc" });
+
+    if (filteredThougths.length === 0) {
+      return res.status(404).json({
+        success: false,
+        response: [],
+        message: `Looks like there are no thoughts with ${hearts} or more likes.`,
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      response: filteredThougths,
+      message: "Found them!",
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      response: [],
+      message: "Something went wrong at the server",
+    });
+  }
+});
+
+// ---- / Endpoints GET ----
+
+// TODO --- Edit thought -----
+// ---- Endpoints PUT ----
+//Edit a thought
+
+app.put("/test/:id", async (req, res) => {
+  return res.json(req.body);
+});
+
+app.put("/thoughts/:id", async (req, res) => {
+  const { id } = req.params;
+  const editedThought = req.body.message;
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: `Oops, this id ${id} is invalid` });
+  }
+
+  if (!editedThought) {
+    return res.status(400).json({
+      error: "Message is required to update a thought",
     });
   }
 
-  const allThoughts = await query.exec();
-
-  if (!allThoughts.length) {
-    return res
-      .status(404)
-      .json({ error: `Message with ${heartsNumber} hearts doesn't exist` });
+  const foundThought = await Thought.findById(id);
+  try {
+    if (!foundThought) {
+      return res.status(404).json({
+        error: `Oops, thought with ${id} doesn't seem to exist yet`,
+      });
+    }
+    foundThought.message = editedThought;
+    await foundThought.save();
+    res.status(200).json({
+      message: "Message was successfully updated",
+      thought: foundThought,
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: "Something went wrong at the server",
+      error: err.errors,
+    });
   }
-
-  res.json(allThoughts);
 });
 
-// ---- Find a message by id
-app.get("/thought/:id", (req, res) => {
-  const id = req.params.id;
+// ---- / Endpoints PUT ----
 
-  const messageById = data.find((item) => item._id === id); // TODO still data
+// ---- Endpoints DELETE ----
+// Delete a thought
+app.delete("/thoughts/:id", async (req, res) => {
+  const { id } = req.params;
 
-  if (!messageById) {
-    return res
-      .status(404)
-      .json({ error: `Message with id ${id} doesn't exist` });
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ error: "Oops, looks like id is invalid" });
   }
+  try {
+    const foundThought = await Thought.findByIdAndDelete(id).exec();
 
-  res.json(messageById);
+    if (!foundThought) {
+      return res.status(404).json({
+        error: `Oh no, you can't delete a thougth with ${id} because it doesn't exist!`,
+      });
+    }
+
+    res.status(200).json({ message: "Thought was deleted" });
+  } catch (err) {
+    res.status(500).json({
+      message: "Something went wrong at the server",
+      error: err.errors,
+    });
+  }
 });
+
+// ---- / Endpoints DELETE ----
 
 // TODO ---- LATER -----
 
-// --- All messages that have N or more hearts, url ex.: http://localhost:8080/thoughts/more-hearts?hearts=N
-app.get("/thoughts/more-hearts", (req, res) => {
-  const { hearts } = req.query;
-
-  const heartsMore = Number(hearts);
-
-  let showPopular = data; // TODO Still data
-
-  if (hearts) {
-    showPopular = showPopular.filter((item) => item.hearts >= heartsMore);
-
-    if (!showPopular.length) {
-      return res.status(404).json({
-        error: `Message with more than ${hearts} hearts doesn't exist`,
-      });
-    }
-  }
-  res.json(showPopular);
-});
-
 // ---- Sorting by date ----
 
-//Endpoint to sort all messages by date from old to new, url ex.: /messages/sort-by/?date=old:-new
-app.get("/thoughts/sort-oldest/", (req, res) => {
-  const sortedByDate = data.sort(
-    // TODO Still data
+//Endpoint to sort all messages by date from old to new, url ex.: OR with /sort-by/?date=old:-new
+app.get("/sort-oldest/", async (req, res) => {
+  /* const { date } = req.query; */
+
+  const sortedByDate = await new Thought.sort(
     (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
   );
 
@@ -235,9 +345,6 @@ use Date.parse for this to get timestamp with name of the month in it?
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
-
-// ---- LIKE ----
-// TODO add like to a post
 
 // ---- REGISTER ----
 // TODO add user registration
