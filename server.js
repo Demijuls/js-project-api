@@ -3,6 +3,8 @@ import express from "express";
 import data from "./data.json";
 import listEndpoints from "express-list-endpoints";
 import mongoose, { Model, set } from "mongoose";
+import crypto from "crypto";
+import bcrypt from "bcrypt-nodejs";
 
 /* console.log("Tweets here: ", data.length) */
 
@@ -41,42 +43,148 @@ const Thought = mongoose.model("Thought", {
 const User = mongoose.model("User", {
   name: {
     type: String,
+    unique: true,
     required: true,
     minLength: 4,
     maxLength: 32,
-    match: true,
   },
+
   email: {
     type: String,
     required: true,
-    match: true,
     unique: true,
   },
+
   password: {
     type: String,
     required: true,
-    minLength: 8,
-    maxLength: 24,
-    match: true,
   },
+
+  accessToken: {
+    type: String,
+    default: () => crypto.randomBytes(128).toString("hex"),
+  },
+
   registerDate: {
     type: Date,
     default: () => new Date(),
   },
 });
-
 // ---- / Models ----
 
-// ---- List all endpoints
+// ---- Authentication function: only authorised users can add or like thoughts
+
+const authenticateUser = async (req, res, next) => {
+  const user = await User.findOne({
+    accessToken: req.header("Authorization"),
+  });
+  if (user) {
+    req.user = user;
+    next();
+  } else {
+    //user is matched and not authorized to do smth
+    res.status(401).json({ loggedOut: true });
+  }
+};
+// ---- // Authentication function
+
+// ---- List all endpoints ----
 app.get("/", (req, res) => {
   const endpoints = listEndpoints(app);
 
   res.json({ endpoints: endpoints });
 });
 
+// TODO ---- ALL USER AUTHORISATION ROUTES
+
+// TODO delete this // ---- Secrets EXAMPLE ----
+//app.get("/secrets", authenticateUser);
+app.get("/secrets", authenticateUser, (req, res) => {
+  res.json({ secret: "This is secret" });
+  /* fetch("...", { headers: { Authorisation: "my secret api key" } }); */
+  //res.send(process.env.API_KEY) - in that cituation, environment variable is being sent to user and is open, even though it is not in the code, but is env variable that was created by me
+});
+
+// TODO // ----Creating new user, route: /register----
+
+app.post("/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "All fields are required to register a user",
+      });
+    }
+
+    if (password.length < 8) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 8 characters long" });
+    }
+
+    const salt = bcrypt.genSaltSync();
+    const hashedPass = bcrypt.hashSync(password, salt);
+
+    const user = new User({
+      name,
+      email,
+      password: hashedPass,
+    });
+
+    await user.save();
+
+    res.status(201).json({
+      id: user._id,
+      accessToken: user.accessToken,
+    }); //encrypting passwords
+  } catch (err) {
+    //User with this name already exists
+    if (err.code === 11000) {
+      return res
+        .status(400)
+        .json({ message: "User with this name or email alredy exists" });
+    }
+    //Bad request
+    res
+      .status(400)
+      .json({ message: "Couldn't create a user", error: err.errors });
+  }
+});
+
+// TODO // ---- Access with existing user, route: /login ----
+app.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: "All fields are required to login",
+      });
+    }
+
+    const user = await User.findOne({ email }); //retrieving username from database, lookig for match by email that should be unique (1 email=1 user)
+
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+    res.json({ userId: user._id, accessToken: user.accessToken });
+  } catch (err) {
+    //Bad request:
+    // 1. Email is incorrect
+    // 2. password doesn't match
+    res.status(500).json({
+      message: "Something went wrong, please try agan",
+      error: err.errors,
+    });
+  }
+});
+
 // ---- Endpoints POST ----
 // ---- Post a thought:
-app.post("/thoughts", async (req, res) => {
+// TODO // app.post("/thoughts", authenticateUser); //giving only authorised users rights to create thoughts
+app.post("/thoughts", authenticateUser, async (req, res) => {
+  //This will only work if next() function is called from the authenticateUser
   const { message } = req.body;
 
   try {
@@ -87,6 +195,36 @@ app.post("/thoughts", async (req, res) => {
     res.status(400).json({
       message: "Couldn't save a thought to the database",
       error: err.errors, //check the errors
+    });
+  }
+});
+
+// ---- Like a thought
+app.post("/thoughts/:id/like", async (req, res) => {
+  const { id } = req.params;
+
+  //Storing operator in variable and options in variables
+  const update = { $inc: { hearts: 1 } };
+  const options = { new: true, runValidators: true };
+
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(404).json({ error: `Oops, this id ${id} is invalid` });
+  }
+
+  try {
+    const addLike = await Thought.findByIdAndUpdate(id, update, options);
+
+    if (!addLike) {
+      return res.status(404).json({
+        error: `Oops, can't like thought with id ${id} because it doesn't exist or was deleted`,
+      });
+    }
+
+    res.status(200).json(addLike);
+  } catch (err) {
+    res.status(500).json({
+      message: "Couldn't save like to the database",
+      error: err.errors,
     });
   }
 });
@@ -152,33 +290,6 @@ app.get("/thoughts/:id", async (req, res) => {
   }
 });
 
-// ---- Like a thought
-app.post("/thoughts/:id/like", async (req, res) => {
-  const { id } = req.params;
-  const update = { $inc: { hearts: 1 }, new: true };
-
-  if (!mongoose.Types.ObjectId.isValid(id)) {
-    return res.status(404).json({ error: `Oops, this id ${id} is invalid` });
-  }
-
-  try {
-    const addLike = await Thought.findByIdAndUpdate(id, update);
-
-    if (!addLike) {
-      return res.status(404).json({
-        error: `Oops, can't like thought with id ${id} because it doesn't exist or was deleted`,
-      });
-    }
-
-    res.status(200).json(addLike);
-  } catch (err) {
-    res.status(500).json({
-      message: "Couldn't save like to the database",
-      error: err.errors,
-    });
-  }
-});
-
 // --- All messages with filter: query param, that have N or more hearts, url ex.: http://localhost:8080/thoughts/hearts?hearts=N&sort=desc
 
 // TODO check the route
@@ -227,11 +338,11 @@ app.get("/hearts", async (req, res) => {
 // ---- Endpoints PUT ----
 //Edit a thought
 
-app.put("/test/:id", async (req, res) => {
+/* app.put("/test/:id", async (req, res) => {
   return res.json(req.body);
-});
+}); */
 
-app.put("/thoughts/:id", async (req, res) => {
+app.put("/thoughts/:id", authenticateUser, async (req, res) => {
   const { id } = req.params;
   const editedThought = req.body.message;
 
@@ -270,7 +381,7 @@ app.put("/thoughts/:id", async (req, res) => {
 
 // ---- Endpoints DELETE ----
 // Delete a thought
-app.delete("/thoughts/:id", async (req, res) => {
+app.delete("/thoughts/:id", authenticateUser, async (req, res) => {
   const { id } = req.params;
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
