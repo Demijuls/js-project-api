@@ -75,9 +75,12 @@ const User = mongoose.model("User", {
 // ---- Authentication function: only authorised users can add or like thoughts
 
 const authenticateUser = async (req, res, next) => {
-  const user = await User.findOne({
-    accessToken: req.header("Authorization"),
-  });
+  const user = await User.findOne;
+  const token = req.header("Authorization");
+  if (!token) {
+    return res.status(401).json({ message: "User is logged out" });
+  }
+
   if (user) {
     req.user = user;
     next();
@@ -95,17 +98,9 @@ app.get("/", (req, res) => {
   res.json({ endpoints: endpoints });
 });
 
-// TODO ---- ALL USER AUTHORISATION ROUTES
+// ---- ALL USER AUTHORISATION ROUTES
 
-// TODO delete this // ---- Secrets EXAMPLE ----
-//app.get("/secrets", authenticateUser);
-app.get("/secrets", authenticateUser, (req, res) => {
-  res.json({ secret: "This is secret" });
-  /* fetch("...", { headers: { Authorisation: "my secret api key" } }); */
-  //res.send(process.env.API_KEY) - in that cituation, environment variable is being sent to user and is open, even though it is not in the code, but is env variable that was created by me
-});
-
-// TODO // ----Creating new user, route: /register----
+// ----Creating new user, route: /register----
 
 app.post("/register", async (req, res) => {
   try {
@@ -152,7 +147,7 @@ app.post("/register", async (req, res) => {
   }
 });
 
-// TODO // ---- Access with existing user, route: /login ----
+// ---- Access with existing user, route: /login ----
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -182,7 +177,6 @@ app.post("/login", async (req, res) => {
 
 // ---- Endpoints POST ----
 // ---- Post a thought:
-// TODO // app.post("/thoughts", authenticateUser); //giving only authorised users rights to create thoughts
 app.post("/thoughts", authenticateUser, async (req, res) => {
   //This will only work if next() function is called from the authenticateUser
   const { message } = req.body;
@@ -292,56 +286,11 @@ app.get("/thoughts/:id", async (req, res) => {
 
 // --- All messages with filter: query param, that have N or more hearts, url ex.: http://localhost:8080/thoughts/hearts?hearts=N&sort=desc
 
-// TODO check the route
-app.get("/hearts", async (req, res) => {
-  const { hearts } = req.query;
-  const heartsMore = Number(hearts);
-
-  if (isNaN(heartsMore)) {
-    return res
-      .status(400)
-      .json({ message: "Oops, this number of likes is not valid" });
-  }
-
-  const query = {};
-  if (hearts) {
-    query.hearts = { $gte: heartsMore };
-  }
-
-  try {
-    const filteredThougths = await Thought.find(query).sort({ hearts: "desc" });
-
-    if (filteredThougths.length === 0) {
-      return res.status(404).json({
-        success: false,
-        response: [],
-        message: `Looks like there are no thoughts with ${hearts} or more likes.`,
-      });
-    }
-    return res.status(200).json({
-      success: true,
-      response: filteredThougths,
-      message: "Found them!",
-    });
-  } catch (err) {
-    return res.status(500).json({
-      success: false,
-      response: [],
-      message: "Something went wrong at the server",
-    });
-  }
-});
-
 // ---- / Endpoints GET ----
 
-// TODO --- Edit thought -----
 // ---- Endpoints PUT ----
+
 //Edit a thought
-
-/* app.put("/test/:id", async (req, res) => {
-  return res.json(req.body);
-}); */
-
 app.put("/thoughts/:id", authenticateUser, async (req, res) => {
   const { id } = req.params;
   const editedThought = req.body.message;
@@ -413,9 +362,8 @@ app.delete("/thoughts/:id", authenticateUser, async (req, res) => {
 
 //Endpoint to sort all messages by date from old to new, url ex.: OR with /sort-by/?date=old:-new
 app.get("/sort-oldest/", async (req, res) => {
-  /* const { date } = req.query; */
-
   const sortedByDate = await new Thought.sort(
+    // TODO still data
     (a, b) => new Date(a.createdAt) - new Date(b.createdAt),
   );
 
@@ -432,33 +380,7 @@ app.get("/thoughts/sort-newest/", (req, res) => {
   res.json(sortedByDate);
 });
 
-//Endpoint to find all messages filtered by date from a specific date that exists/up to a specific date
-/* app.get("/messages/date/?date=old:-new);
-app.get("/messages/date/?date=new:-old); 
-const { date } = req.query;
-
-const dateString = ParseInt(date);
-
-const DateObject = new Date(date)*/
-
-//Endpoint to find all messages filtered by a year
-/* app.get("/messages/year/:year", (req, res) => {
-  const createdAtDate = data.map((item) => item.createdAt); */
-/*   res.json(createdAtYear);
-}); */
-
-//Endpoint to find all messages filtered by month
-/* app.get("/messages/month/:month" or "/messages/month?month=May");
-use Date.parse for this to get timestamp with name of the month in it? 
-*/
-
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on http://localhost:${port}`);
 });
-
-// ---- REGISTER ----
-// TODO add user registration
-
-// ---- LOGIN ----
-// TODO add user login
